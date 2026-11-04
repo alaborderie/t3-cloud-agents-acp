@@ -65,7 +65,9 @@ A proof must show these side effects in `fake-requests.jsonl`:
 - `POST /agents/:id/reply` with `{"questionId":"ask-1","answer":"yes"}`
 - `POST /agents/:id/stop`
 
-A message in the thread alone is not enough. The child's lineage and tool items come from the throwaway database, which the script reads with `sqlite3 ... ?mode=ro`.
+The PR link has no fake request. Its proof is the `T3 lists the cloud agent's PR on the child thread` check, which shows T3's own `list_thread_pull_requests` result for the child.
+
+A message in the thread alone is not enough. The child's lineage and tool items come from the throwaway database, which the script reads read-only with `node:sqlite`.
 
 ## Cleanup
 

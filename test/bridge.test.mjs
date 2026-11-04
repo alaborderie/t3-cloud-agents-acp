@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import * as fs from "node:fs";
+import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as readline from "node:readline";
@@ -38,6 +39,42 @@ after(async () => {
   await fake.close();
   fs.rmSync(tmp, { recursive: true, force: true });
 });
+
+/**
+ * A fake of T3's MCP endpoint that records each tool call. `failing` makes every tool call fail.
+ * `servers` is the mcpServers entry T3 sends a local ACP command.
+ */
+async function startFakeT3Mcp() {
+  const authorization = "Bearer t3-fake";
+  /** @type {{ name: string, arguments: any, authorization: string | undefined }[]} */
+  const calls = [];
+  const state = { failing: false };
+  const server = http.createServer(async (req, res) => {
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    const message = JSON.parse(raw);
+    if (message.id === undefined) return void res.writeHead(202).end();
+    let result = {};
+    if (message.method === "initialize") result = { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "fake-t3", version: "1" } };
+    if (message.method === "tools/call") {
+      calls.push({ name: message.params.name, arguments: message.params.arguments, authorization: req.headers.authorization });
+      result = state.failing
+        ? { isError: true, content: [{ type: "text", text: "This is not a recognised pull request URL." }] }
+        : { content: [{ type: "text", text: "{}" }], structuredContent: { alreadyLinked: false } };
+    }
+    res.writeHead(200, { "content-type": "text/event-stream", "mcp-session-id": "mcp-1" });
+    res.end(`event: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", id: message.id, result })}\n\n`);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(undefined)));
+  const url = `http://127.0.0.1:${/** @type {import("node:net").AddressInfo} */ (server.address()).port}/mcp`;
+  return {
+    calls,
+    state,
+    authorization,
+    servers: [{ name: "t3", command: "t3", args: ["acp-mcp-bridge"], env: [{ name: "T3_ACP_MCP_ENDPOINT", value: url }, { name: "T3_ACP_MCP_AUTHORIZATION", value: authorization }] }],
+    close: () => new Promise((resolve) => (server.closeAllConnections(), server.close(resolve))),
+  };
+}
 
 /**
  * A minimal ACP client. `onElicit` answers elicitation/create requests.
@@ -85,9 +122,9 @@ function startBridge(options = {}) {
         const timer = setInterval(() => predicate() && (clearInterval(timer), resolve(undefined)), 20);
       });
     },
-    async open() {
+    async open(/** @type {unknown[]} */ mcpServers = []) {
       await this.request("initialize", { protocolVersion: 1, clientCapabilities: { elicitation: { form: {} } } });
-      return /** @type {string} */ ((await this.request("session/new", { cwd: project, mcpServers: [] })).sessionId);
+      return /** @type {string} */ ((await this.request("session/new", { cwd: project, mcpServers })).sessionId);
     },
     stop: () => new Promise((resolve) => (child.once("exit", resolve), child.stdin.end())),
   };
@@ -99,6 +136,8 @@ const prompt = (text) => [{ type: "text", text: `<t3_code_instructions>\nmode\n<
 /** @param {any[]} updates */
 const messageText = (updates) =>
   updates.filter((u) => u.sessionUpdate === "agent_message_chunk").map((u) => u.content.text).join("");
+
+const PR_URL = `https://github.com/${SANDBOX}/pull/3`;
 
 /** @param {string} agentId */
 const requestsFor = (agentId) => fake.requests.filter((r) => r.path.includes(`/agents/${agentId}`) && r.method === "POST");
@@ -178,7 +217,7 @@ test("Stop before Backstage answers POST /agents stops the agent it creates", { 
   }
 });
 
-test("after a restart, session/load resumes the stream without repeating items", async () => {
+test("after a restart, session/load resumes the stream without repeating items", async (t) => {
   const first = startBridge();
   const sessionId = await first.open();
   void first.request("session/prompt", { sessionId, prompt: prompt("scenario: success\nRestart me") }).catch(() => {});
@@ -186,9 +225,12 @@ test("after a restart, session/load resumes the stream without repeating items",
   first.child.kill("SIGKILL");
   await new Promise((resolve) => first.child.once("exit", resolve));
 
+  const t3 = await startFakeT3Mcp();
+  t.after(t3.close);
   const second = startBridge();
+  t.after(second.stop);
   await second.request("initialize", { protocolVersion: 1 });
-  await second.request("session/load", { sessionId, cwd: project, mcpServers: [] });
+  await second.request("session/load", { sessionId, cwd: project, mcpServers: t3.servers });
   const result = await second.request("session/prompt", {
     sessionId,
     prompt: prompt("Continue where you left off. Your last turn was cut short."),
@@ -201,7 +243,7 @@ test("after a restart, session/load resumes the stream without repeating items",
   const agentId = agentIdOf(first.updates);
   assert.equal(fake.requests.filter((r) => r.method === "POST" && r.path === "/api/cloud-agents/agents" && r.body.prompt === "scenario: success\nRestart me").length, 1, "one agent");
   assert.deepEqual(requestsFor(agentId), [], "the restart sends nothing to the agent");
-  await second.stop();
+  assert.deepEqual(t3.calls.map((c) => [c.name, c.arguments]), [["link_pull_request", { url: PR_URL }]], "session/load's MCP server links the PR");
 });
 
 test("a follow-up message on a finished agent goes to /messages", async () => {
@@ -237,4 +279,47 @@ test("the token stays out of the bridge's output", async () => {
   await bridge.stop();
   assert.ok(!JSON.stringify(bridge.updates).includes(fake.token));
   assert.ok(!bridge.stderr().includes(fake.token));
+});
+
+test("a run that ends with a PR links it to the T3 thread once, across follow-up runs", async (t) => {
+  const t3 = await startFakeT3Mcp();
+  t.after(t3.close);
+  const bridge = startBridge();
+  t.after(bridge.stop);
+  const sessionId = await bridge.open(t3.servers);
+  await bridge.request("session/prompt", { sessionId, prompt: prompt("scenario: success\nOpen a PR") });
+  assert.deepEqual(t3.calls, [{ name: "link_pull_request", arguments: { url: PR_URL }, authorization: t3.authorization }]);
+  assert.equal(bridge.updates.at(-1).content.text.split("\n").at(-1), `PR: ${PR_URL}`, "the summary stays the last update");
+
+  await bridge.request("session/prompt", { sessionId, prompt: prompt("Also add a newline") });
+  assert.match(messageText(bridge.updates), /PR: .*pull\/3[^]*PR: .*pull\/3$/, "the follow-up run ends with the same PR");
+  assert.equal(t3.calls.length, 1, "the same PR is not linked again");
+});
+
+test("a failed link leaves the run's result intact and is retried on the next run", async (t) => {
+  const t3 = await startFakeT3Mcp();
+  t.after(t3.close);
+  t3.state.failing = true;
+  const bridge = startBridge();
+  t.after(bridge.stop);
+  const sessionId = await bridge.open(t3.servers);
+  const result = await bridge.request("session/prompt", { sessionId, prompt: prompt("scenario: success\nOpen a PR") });
+  assert.deepEqual(result, { stopReason: "end_turn" });
+  assert.match(messageText(bridge.updates), /PR: .*pull\/3$/);
+  assert.match(bridge.stderr(), /could not link .*pull\/3 in T3: T3 MCP link_pull_request: This is not a recognised/);
+
+  t3.state.failing = false;
+  await bridge.request("session/prompt", { sessionId, prompt: prompt("Try again") });
+  assert.deepEqual(t3.calls.map((c) => c.name), ["link_pull_request", "link_pull_request"]);
+});
+
+test("an unreachable T3 MCP endpoint does not fail the run", async (t) => {
+  const bridge = startBridge();
+  t.after(bridge.stop);
+  const servers = [{ name: "t3", command: "t3", args: [], env: [{ name: "T3_ACP_MCP_ENDPOINT", value: "http://127.0.0.1:9/mcp" }, { name: "T3_ACP_MCP_AUTHORIZATION", value: "Bearer x" }] }];
+  const sessionId = await bridge.open(servers);
+  const result = await bridge.request("session/prompt", { sessionId, prompt: prompt("scenario: success\nOpen a PR") });
+  assert.deepEqual(result, { stopReason: "end_turn" });
+  assert.match(messageText(bridge.updates), /PR: .*pull\/3$/);
+  assert.match(bridge.stderr(), /could not link/);
 });

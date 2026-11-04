@@ -13,6 +13,7 @@ This directory lists the user-facing behaviors of the bridge in T3 Code. Read th
 - Act as the parent thread through `test/t3/scripted-parent.mjs`. Send it one JSON tool call per message with `t3 thread send --wait`.
 - Read a child's state from `t3 thread show --json`, from `~/t3-acp-proof/bridge/fake-requests.jsonl`, and from the throwaway database in read-only mode.
 - A brief that contains `scenario: success` skips the question. Any other brief asks `ask-1` first.
+- A brief that contains `scenario: runner-pr` drops `gh pr create` from the streams, so only the bridge can link the PR.
 
 ## Proof and skip reporting
 

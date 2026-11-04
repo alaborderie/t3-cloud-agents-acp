@@ -9,6 +9,7 @@ A parent thread delegates a brief to the `cloudAgent` provider. A child thread a
 - `delegate-stream` shows text and tool items in the child.
 - `delegate-result` delivers `Cloud agent <id> succeeded.`, the branch, and `PR: <url>` to the parent.
 - `delegate-followup` sends a later message to `POST /agents/:id/messages`.
+- `delegate-pr-link` links the run's PR to the child thread, so T3 lists it with the thread's pull requests.
 
 ## How to get to it (user POV)
 
@@ -22,6 +23,7 @@ A parent thread delegates a brief to the `cloudAgent` provider. A child thread a
 - **Create request.** The check `POST /agents uses the project's origin repo and the selected tier` shows `repo: alaborderie/cloud-agent-runner-sandbox` and `tier: flash`.
 - **Stream.** The check `the child shows streamed text and tool items` lists `command_execution`, `file_change`, and `assistant_message` items.
 - **Result.** The check `the parent received the final message with the PR URL` shows `PR: https://github.com/alaborderie/cloud-agent-runner-sandbox/pull/3`.
+- **PR link.** The check `T3 lists the cloud agent's PR on the child thread (list_thread_pull_requests)` shows an entry with that URL and `"source":"agent"`. The proof's brief has `scenario: runner-pr`, so T3 cannot link the PR from a `gh pr create` item itself.
 - **Follow-up.** On a kept instance, send any text to a finished child with `t3 thread send --base-dir ~/t3-acp-proof --wait <childThreadId> "Also add a newline"`. `fake-requests.jsonl` gets `POST /agents/<id>/messages`.
 
 ## Gotchas

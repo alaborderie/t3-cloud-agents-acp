@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 // @ts-check
 // Proves the bridge on an official T3 release in a throwaway T3 home, against the fake
-// Backstage: a parent thread delegates to the bridge, answers its question, and stops a
-// second cloud agent. Each check prints PASS or FAIL; the exit code is the number of FAILs.
+// Backstage: a parent thread delegates to the bridge, answers its question, lists the PRs
+// linked to the child, and stops a second cloud agent. Each check prints PASS or FAIL; the
+// exit code is the number of FAILs.
 import { execFileSync, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { parseArgs } from "node:util";
 
 const { values: opts } = parseArgs({
@@ -46,9 +48,15 @@ function check(ok, label, evidence) {
 const sleep = (/** @type {number} */ ms) => new Promise((resolve) => setTimeout(resolve, ms));
 /** @param {string[]} args */
 const t3 = (args) => execFileSync(T3, [...args.slice(0, 2), "--base-dir", HOME, ...args.slice(2)], { encoding: "utf8", cwd: PROJECT, maxBuffer: 64 << 20 });
-/** @param {string} sql */
-const sql = (sql) =>
-  execFileSync("sqlite3", [`file:${path.join(HOME, "userdata", "statev2.sqlite")}?mode=ro`, sql], { encoding: "utf8" }).trim();
+/** Each row's columns joined by "|", one row per line, like the sqlite3 CLI. @param {string} query */
+function sql(query) {
+  const db = new DatabaseSync(path.join(HOME, "userdata", "statev2.sqlite"), { readOnly: true });
+  try {
+    return db.prepare(query).all().map((row) => Object.values(row).join("|")).join("\n");
+  } finally {
+    db.close();
+  }
+}
 const fakeRequests = () =>
   fs.existsSync(REQUESTS) ? fs.readFileSync(REQUESTS, "utf8").split("\n").filter((line) => line.startsWith("{")).map((line) => JSON.parse(line)) : [];
 
@@ -145,7 +153,7 @@ async function main() {
       // Already added by an earlier run.
     }
 
-    const task = "Ask before deleting README.md, then open a PR.";
+    const task = "scenario: runner-pr\nAsk before deleting README.md, then open a PR.";
     const parent = t3(["thread", "start", PROJECT, "--provider", "scriptedParent", "--model", "script", "--title", "proof parent", "--wait", "--json",
       JSON.stringify({ tool: "delegate_task", args: { task, title: "[proof] cloud agent", target: { providerInstanceId: "cloudAgent", model: "flash" } } })]);
     const parentId = /** @type {string} */ (parent.match(/"threadId":"([^"]+)"/)?.[1]);
@@ -172,6 +180,10 @@ async function main() {
 
     const result = await waitFor(() => parentMessages(parentId).find((text) => text.includes(first.taskId) && text.includes("[completed]")), "the result in the parent");
     check(result.includes(`PR: ${PR_URL}`), "the parent received the final message with the PR URL", result.slice(result.indexOf("[completed]"), result.indexOf("[completed]") + 200).split("<runtime_info>")[0]);
+    send(parentId, { tool: "list_thread_pull_requests", args: { threadId: first.childThreadId } });
+    const listedPrs = JSON.parse(parentMessages(parentId).findLast((text) => text.startsWith('{"content"') && text.includes("pullRequests")) ?? "null");
+    const childPrs = JSON.parse(listedPrs?.content?.[0]?.text ?? "{}").pullRequests ?? [];
+    check(childPrs.some((/** @type {any} */ pr) => pr.url === PR_URL), "T3 lists the cloud agent's PR on the child thread (list_thread_pull_requests)", childPrs);
     const items = sql(`select type || ':' || count(*) from orchestration_v2_projection_turn_items where thread_id='${first.childThreadId}' and type in ('assistant_message','command_execution','file_change','dynamic_tool','user_input_request') group by type`).split("\n");
     check(items.some((i) => i.startsWith("command_execution:")) && items.some((i) => i.startsWith("assistant_message:")), "the child shows streamed text and tool items", items);
 

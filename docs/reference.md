@@ -68,3 +68,11 @@ The bridge sends the body of T3's `<user_request>` block as the agent's `prompt`
 | `agent.status` `stopped` | final `agent_message_chunk`, then `stopReason: cancelled` | cancelled |
 
 The final message reads `Cloud agent <id> <status>.`, then `Branch: <branch>` and `PR: <url or none>`. When the agent did not succeed, it also gives `Error: <error>`. The bridge ignores `skills.ready`, `workspace.ready`, `session.started`, and event types it does not know.
+
+## Pull request link
+
+T3 lists a PR on a thread only once it is linked. A PR URL in the child's messages is not enough. When a run ends with a PR URL, the bridge calls T3's MCP tool `link_pull_request` with `{"url": <url>}`, before it sends the final message. The tool links to the calling thread, which is the child.
+
+- **Endpoint.** T3 passes its MCP server in `mcpServers` at `session/new` and `session/load`. The bridge reads `T3_ACP_MCP_ENDPOINT` and `T3_ACP_MCP_AUTHORIZATION` from that entry's `env`. It keeps them in memory only.
+- **Once per PR.** The bridge stores the last linked URL with the session. A follow-up run that ends on the same PR does not link it again.
+- **Failure.** A failed link does not change the run's result. The child shows `Could not link <url> to this thread in T3.`, and the bridge writes the error to stderr. The next run that ends with that PR tries again.

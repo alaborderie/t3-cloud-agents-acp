@@ -4,7 +4,9 @@
 //
 // Each agent's first run replays opencode-needs-input.jsonl (one blocking question), and the
 // run after the answer replays the harness's success stream, which ends with a PR URL. A
-// brief that contains "scenario: success" skips the question. POST /stop cancels the run
+// brief that contains "scenario: success" skips the question. A brief that contains
+// "scenario: runner-pr" drops the agent's `gh pr create` call from every stream, as when the
+// runner opens the PR, so only run.finished carries the PR URL. POST /stop cancels the run
 // being replayed. Every request is printed as one JSON line, without the Authorization header.
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
@@ -70,7 +72,9 @@ export async function startFakeBackstage(options = {}) {
     agent.openQuestions = [];
     publish(agent, { type: "agent.run_started", runId: run.id, reason });
     setStatus(agent, "running");
-    const lines = loadStream(streamName);
+    const stream = loadStream(streamName);
+    const prCalls = new Set(agent.runnerOpensPr ? stream.filter((e) => e.type === "tool.call" && /\bgh pr create\b/.test(e.input?.command ?? "")).map((e) => e.call_id) : []);
+    const lines = stream.filter((e) => !prCalls.has(e.call_id));
     /** @type {Map<string, any>} */
     const questions = new Map();
     let index = 0;
@@ -176,6 +180,7 @@ export async function startFakeBackstage(options = {}) {
       openQuestions: [],
       prUrl: null,
       parent: body.parent ?? null,
+      runnerOpensPr: /scenario:\s*runner-pr/i.test(body.prompt),
       events: [],
       listeners: new Set(),
       closers: new Set(),
