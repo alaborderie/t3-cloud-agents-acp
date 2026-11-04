@@ -1,0 +1,22 @@
+{
+  "name": "cloud-agent-acp",
+  "version": "0.1.0",
+  "description": "ACP agent that shows Backstage cloud agents as T3 Code sub-threads",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "cloud-agent-acp": "src/main.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "typecheck": "tsc",
+    "fake-backstage": "node test/fake-backstage.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^5.9.3"
+  }
+}
