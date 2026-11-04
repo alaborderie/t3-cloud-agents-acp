@@ -151,12 +151,18 @@ export function step(state, envelope) {
 }
 
 /**
+ * @param {{ prUrl?: string | null }} agent @param {RunFinished | null} lastRun
+ * @returns {string | null}
+ */
+export const prUrlOf = (agent, lastRun) => agent.prUrl ?? lastRun?.pr_url ?? null;
+
+/**
  * The last message of the turn, which T3 delivers to the parent thread as the result.
  * @param {{ id: string, status: string, branch?: string, prUrl?: string | null }} agent
  * @param {RunFinished | null} lastRun
  */
 export function finalSummary(agent, lastRun) {
-  const prUrl = agent.prUrl ?? lastRun?.pr_url ?? null;
+  const prUrl = prUrlOf(agent, lastRun);
   const branch = agent.branch ?? lastRun?.branch;
   const lines = [`Cloud agent ${agent.id} ${agent.status}.`];
   if (branch) lines.push(`Branch: ${branch}`);

@@ -1,6 +1,6 @@
 # t3-cloud-agents-acp
 
-`cloud-agent-acp` runs a Backstage cloud agent as a T3 Code sub-thread. It is an ACP agent that T3 starts as a **Local ACP command** provider. When a thread calls `delegate_task` with that provider, the bridge creates a cloud agent through the Backstage cloud-agents API. It then streams the agent's text and tool calls into the child thread. A question from the cloud agent becomes a T3 question that wakes the parent thread. Stop in T3 stops the cloud agent. The child's last message gives the branch and the PR URL.
+`cloud-agent-acp` runs a Backstage cloud agent as a T3 Code sub-thread. It is an ACP agent that T3 starts as a **Local ACP command** provider. When a thread calls `delegate_task` with that provider, the bridge creates a cloud agent through the Backstage cloud-agents API. It then streams the agent's text and tool calls into the child thread. A question from the cloud agent becomes a T3 question that wakes the parent thread. Stop in T3 stops the cloud agent. The child's last message gives the branch and the PR URL, and the bridge links that PR to the child thread, so T3 lists it with the thread's pull requests.
 
 It needs Node 22 or later and has no runtime dependencies. It changes no T3 code. [docs/t3-0.1.7-findings.md](docs/t3-0.1.7-findings.md) records what it relies on in the official T3 0.1.7 release, with file references. [docs/reference.md](docs/reference.md) lists the configuration and the event mapping.
 
@@ -72,18 +72,18 @@ The hub agent calls `delegate_task` itself, so the child nests under the hub thr
 - **Repository.** The bridge takes the GitHub `origin` remote of the thread's folder and its default branch. To use another repository, start the brief with header lines such as `repo: owner/name`, `base: main`, or `branch: feat/x`. The bridge removes those lines from the brief.
 - **Questions.** A question arrives in the hub thread as a wake message. Read it with `t3_pending_request` action `read`, and answer with action `respond`. The bridge posts each answer to `POST /agents/:id/reply`, and the cloud agent continues on the same branch.
 - **Stop.** Call `task_cancel` with the task id, or use Stop in the parent's relationships panel. The bridge calls `POST /agents/:id/stop`.
-- **Result.** When the cloud agent finishes, the hub thread gets the child's last message. It reads `Cloud agent <id> succeeded.`, then `Branch: <branch>` and `PR: <url>`.
+- **Result.** When the cloud agent finishes, the hub thread gets the child's last message. It reads `Cloud agent <id> succeeded.`, then `Branch: <branch>` and `PR: <url>`. The PR is linked to the child thread, so `list_thread_pull_requests` with the child's `threadId` returns it.
 - **Retry.** Send a message to the child thread after it finishes. The bridge posts it to `POST /agents/:id/messages`, which starts a new run on the same branch.
 - **Restart.** If T3 restarts during a run, it reloads the session. The bridge then resumes the event stream after the last event it showed.
 
 ## Prove it on a throwaway T3
 
-`scripts/t3-proof.mjs` checks the bridge on the official T3 release, against the fake Backstage server in this repository. It never touches `~/.t3`. It does five things:
+`scripts/t3-proof.mjs` checks the bridge on the official T3 release, against the fake Backstage server in this repository. It never touches `~/.t3`. It needs Node 22.13 or later for `node:sqlite`. It does five things:
 
 1. It installs T3 0.1.7 into `~/t3-acp-proof` with `https://t3.codes/install.sh`, setting `T3CODE_VERSION`, `T3CODE_HOME`, and `T3CODE_INSTALL_BIN_DIR`.
 2. It registers the bridge as `cloudAgent`, and a scripted parent agent as `scriptedParent`. The scripted parent needs no paid model. It turns each JSON message into one T3 MCP tool call.
 3. It starts the fake Backstage server on port 7480 and `t3 serve` on port 47811.
-4. It delegates to the bridge from a parent thread, then answers the cloud agent's question.
+4. It delegates to the bridge from a parent thread, then answers the cloud agent's question. When the run ends, it calls `list_thread_pull_requests` for the child thread and checks that T3 lists the PR.
 5. It delegates a second cloud agent and stops it.
 
 Run it from the repository root:
@@ -100,7 +100,7 @@ The fake server prints each request it receives as one JSON line. The proof stor
 node test/fake-backstage.mjs --port 7480 --pace 400
 ```
 
-It accepts the token `cat_fake`. It replays the runner's recorded streams from `test/fixtures/streams`. These are copies of `runner/test/streams` in `alaborderie/backstage-plugin-cloud-agents`. An agent's first run asks one blocking question. The run after the answer ends with a PR URL. A brief that contains `scenario: success` skips the question.
+It accepts the token `cat_fake`. It replays the runner's recorded streams from `test/fixtures/streams`. These are copies of `runner/test/streams` in `alaborderie/backstage-plugin-cloud-agents`. An agent's first run asks one blocking question. The run after the answer ends with a PR URL. A brief that contains `scenario: success` skips the question. A brief that contains `scenario: runner-pr` drops the agent's `gh pr create` call from the streams, as when the runner opens the PR. T3 links a PR on its own when it sees that call, so the proof uses this scenario to check the bridge's link.
 
 ## Develop
 
@@ -110,4 +110,4 @@ npm test
 npm run typecheck
 ```
 
-The tests feed every recorded stream through the event mapping. They also run the bridge over stdio against the fake server, covering the question and answer, Stop, a restart, and a follow-up message.
+The tests feed every recorded stream through the event mapping. They also run the bridge over stdio against the fake server, covering the question and answer, Stop, a restart, a follow-up message, and the PR link through a fake T3 MCP endpoint.

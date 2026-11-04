@@ -6,7 +6,8 @@ import * as path from "node:path";
 
 import { RpcError } from "./acp.mjs";
 import { parseBrief, resolveTarget, userRequest } from "./config.mjs";
-import { TERMINAL_STATUSES, finalSummary, initialStreamState, step } from "./mapping.mjs";
+import { TERMINAL_STATUSES, finalSummary, initialStreamState, prUrlOf, step } from "./mapping.mjs";
+import { callT3Tool, t3McpEndpoint } from "./t3-mcp.mjs";
 
 /**
  * @typedef {import("./config.mjs").Config} Config
@@ -15,8 +16,9 @@ import { TERMINAL_STATUSES, finalSummary, initialStreamState, step } from "./map
  * @typedef {import("./acp.mjs").Connection} Connection
  * @typedef {import("./mapping.mjs").StreamState} StreamState
  * @typedef {import("./mapping.mjs").SessionUpdate} SessionUpdate
- * @typedef {{ cwd: string, modelId: string, agentId: string | null, stream: StreamState }} SessionRecord
- * @typedef {SessionRecord & { id: string, turn: AbortController | null }} Session
+ * @typedef {import("./t3-mcp.mjs").T3McpEndpoint} T3McpEndpoint
+ * @typedef {{ cwd: string, modelId: string, agentId: string | null, stream: StreamState, linkedPrUrl: string | null }} SessionRecord
+ * @typedef {SessionRecord & { id: string, turn: AbortController | null, t3: T3McpEndpoint | null }} Session
  * @typedef {{ stopReason: "end_turn" | "cancelled" }} PromptResult
  */
 
@@ -54,7 +56,7 @@ function sessionStore(stateDir) {
     save(session) {
       fs.mkdirSync(dir, { recursive: true });
       /** @type {SessionRecord} */
-      const record = { cwd: session.cwd, modelId: session.modelId, agentId: session.agentId, stream: session.stream };
+      const record = { cwd: session.cwd, modelId: session.modelId, agentId: session.agentId, stream: session.stream, linkedPrUrl: session.linkedPrUrl };
       const tmp = `${file(session.id)}.${process.pid}.tmp`;
       fs.writeFileSync(tmp, JSON.stringify(record));
       fs.renameSync(tmp, file(session.id));
@@ -173,8 +175,22 @@ export function createBridge({ config, client, acp }) {
     }
   }
 
-  /** @param {Session} session @param {Agent} agent @returns {PromptResult} */
-  function finish(session, agent) {
+  /** T3 lists a PR on a thread only once it is linked; a failed link must not fail the run. */
+  async function linkPullRequest(/** @type {Session} */ session, /** @type {string | null} */ url) {
+    if (url === null || url === session.linkedPrUrl || session.t3 === null) return;
+    try {
+      await callT3Tool(session.t3, "link_pull_request", { url });
+      session.linkedPrUrl = url;
+      store.save(session);
+    } catch (error) {
+      process.stderr.write(`cloud-agent-acp could not link ${url} in T3: ${/** @type {Error} */ (error).message}\n`);
+      note(session, `Could not link ${url} to this thread in T3.\n`);
+    }
+  }
+
+  /** @param {Session} session @param {Agent} agent @returns {Promise<PromptResult>} */
+  async function finish(session, agent) {
+    await linkPullRequest(session, prUrlOf(agent, session.stream.lastRun));
     show(session, finalSummary(agent, session.stream.lastRun));
     if (agent.status === "failed") {
       throw new RpcError(-32603, `Cloud agent ${agent.id} failed: ${session.stream.lastRun?.error ?? "see the thread"}`);
@@ -278,7 +294,9 @@ export function createBridge({ config, client, acp }) {
             modelId: config.defaultModel,
             agentId: null,
             stream: initialStreamState(),
+            linkedPrUrl: null,
             turn: null,
+            t3: t3McpEndpoint(params.mcpServers),
           };
           sessions.set(session.id, session);
           store.save(session);
@@ -288,7 +306,7 @@ export function createBridge({ config, client, acp }) {
           const id = String(params.sessionId);
           const record = store.load(id);
           if (!record) throw new RpcError(-32602, `Unknown session ${id}`);
-          sessions.set(id, { ...record, id, turn: null });
+          sessions.set(id, { ...record, linkedPrUrl: record.linkedPrUrl ?? null, id, turn: null, t3: t3McpEndpoint(params.mcpServers) });
           return { models: models(record.modelId) };
         }
         case "session/set_model": {

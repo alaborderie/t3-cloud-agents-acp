@@ -7,19 +7,11 @@ import { randomUUID } from "node:crypto";
 import * as readline from "node:readline";
 
 import { userRequest } from "../../src/config.mjs";
+import { callT3Tool, t3McpEndpoint } from "../../src/t3-mcp.mjs";
 
-/** @type {Map<string, { url: string, authorization: string } | null>} */
+/** @type {Map<string, import("../../src/t3-mcp.mjs").T3McpEndpoint | null>} */
 const sessions = new Map();
 const send = (/** @type {any} */ message) => process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`);
-
-/** T3 passes its MCP server as a stdio bridge whose environment names the HTTP endpoint. */
-function mcpEndpoint(/** @type {any[]} */ servers) {
-  for (const server of servers ?? []) {
-    const env = Object.fromEntries((server.env ?? []).map((/** @type {any} */ e) => [e.name, e.value]));
-    if (env.T3_ACP_MCP_ENDPOINT) return { url: env.T3_ACP_MCP_ENDPOINT, authorization: env.T3_ACP_MCP_AUTHORIZATION };
-  }
-  return null;
-}
 
 /** @param {string} text */
 function leadingJson(text) {
@@ -37,24 +29,6 @@ function leadingJson(text) {
   throw new Error("unterminated JSON");
 }
 
-/** @param {{ url: string, authorization: string }} endpoint @param {string} tool @param {unknown} args */
-async function callTool(endpoint, tool, args) {
-  const headers = { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: endpoint.authorization };
-  /** @param {any} body @param {string | null} session */
-  const post = async (body, session) => {
-    const res = await fetch(endpoint.url, { method: "POST", headers: session ? { ...headers, "mcp-session-id": session } : headers, body: JSON.stringify(body) });
-    const raw = await res.text();
-    const json = raw.trimStart().startsWith("{")
-      ? raw
-      : raw.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5)).join("");
-    return { session: res.headers.get("mcp-session-id") ?? session, body: json ? JSON.parse(json) : null };
-  };
-  const init = await post({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "scripted-parent", version: "1" } } }, null);
-  await post({ jsonrpc: "2.0", method: "notifications/initialized" }, init.session);
-  const call = await post({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: tool, arguments: args } }, init.session);
-  return call.body.result ?? call.body.error;
-}
-
 /** @param {any} params */
 async function prompt(params) {
   const request = userRequest(params.prompt ?? []);
@@ -64,7 +38,7 @@ async function prompt(params) {
     try {
       if (!endpoint) throw new Error("T3 passed no MCP server");
       const { tool, args } = leadingJson(request);
-      reply = JSON.stringify(await callTool(endpoint, tool, args ?? {}));
+      reply = JSON.stringify(await callT3Tool(endpoint, tool, args ?? {}));
     } catch (error) {
       reply = `scripted-parent error: ${/** @type {Error} */ (error).message}`;
     }
@@ -82,11 +56,11 @@ async function handle(method, params) {
       return { protocolVersion: 1, agentCapabilities: { loadSession: true, promptCapabilities: { image: false, audio: false, embeddedContext: true } }, authMethods: [], agentInfo: { name: "scripted-parent", version: "1" } };
     case "session/new": {
       const sessionId = `parent-${randomUUID()}`;
-      sessions.set(sessionId, mcpEndpoint(params.mcpServers));
+      sessions.set(sessionId, t3McpEndpoint(params.mcpServers));
       return { sessionId, models };
     }
     case "session/load":
-      sessions.set(String(params.sessionId), mcpEndpoint(params.mcpServers));
+      sessions.set(String(params.sessionId), t3McpEndpoint(params.mcpServers));
       return { models };
     case "session/prompt":
       return prompt(params);
