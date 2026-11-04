@@ -160,6 +160,24 @@ test("Stop while the question is open also stops the agent", async () => {
   await bridge.stop();
 });
 
+test("Stop before Backstage answers POST /agents stops the agent it creates", { timeout: 5_000 }, async () => {
+  fake.control.createDelayMs = 300;
+  const bridge = startBridge();
+  try {
+    const sessionId = await bridge.open();
+    const turn = bridge.request("session/prompt", { sessionId, prompt: prompt("scenario: success\nSlow create") });
+    await bridge.until(() => fake.requests.some((r) => r.body?.prompt === "scenario: success\nSlow create"));
+    bridge.notify("session/cancel", { sessionId });
+    assert.deepEqual(await turn, { stopReason: "cancelled" });
+    const [agent] = await (await fetch(`${fake.url}/api/cloud-agents/agents`, { headers: { authorization: `Bearer ${fake.token}` } })).json();
+    await bridge.until(() => requestsFor(agent.id).length > 0);
+    assert.deepEqual(requestsFor(agent.id).map((r) => r.path), [`/api/cloud-agents/agents/${agent.id}/stop`]);
+  } finally {
+    fake.control.createDelayMs = 0;
+    await bridge.stop();
+  }
+});
+
 test("after a restart, session/load resumes the stream without repeating items", async () => {
   const first = startBridge();
   const sessionId = await first.open();

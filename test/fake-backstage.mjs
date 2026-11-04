@@ -32,12 +32,15 @@ const loadStream = (name) =>
 /**
  * @typedef {{ method: string, path: string, body: any }} RecordedRequest
  * @typedef {{ port?: number, paceMs?: number, token?: string, onRequest?: (request: RecordedRequest) => void }} FakeOptions
+ * @typedef {{ createDelayMs: number }} FakeControl
  */
 
 /** @param {FakeOptions} [options] */
 export async function startFakeBackstage(options = {}) {
   const paceMs = options.paceMs ?? 300;
   const token = options.token ?? "cat_fake";
+  /** @type {FakeControl} */
+  const control = { createDelayMs: 0 };
   /** @type {RecordedRequest[]} */
   const requests = [];
   /** @type {Map<string, any>} */
@@ -205,6 +208,7 @@ export async function startFakeBackstage(options = {}) {
 
     if (req.method === "POST" && route === "/agents") {
       if (!body?.repo || !body?.prompt) return send(res, 400, { error: "repo and prompt are required" });
+      if (control.createDelayMs) await new Promise((resolve) => setTimeout(resolve, control.createDelayMs));
       const created = createAgent(body);
       return created ? send(res, 201, view(created)) : send(res, 400, { error: "unknown tier" });
     }
@@ -258,6 +262,7 @@ export async function startFakeBackstage(options = {}) {
     url: `http://127.0.0.1:${address.port}`,
     token,
     requests,
+    control,
     close: () =>
       new Promise((resolve) => {
         for (const agent of agents.values()) {

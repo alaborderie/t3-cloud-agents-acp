@@ -208,6 +208,10 @@ export function createBridge({ config, client, acp }) {
       });
       session.agentId = agent.id;
       store.save(session);
+      if (signal.aborted) {
+        await client.stop(agent.id);
+        throw new Cancelled();
+      }
       note(session, `Cloud agent ${agent.id} created for ${repo} (base ${base}).\n`);
       return follow(session, agent, false, signal);
     }
