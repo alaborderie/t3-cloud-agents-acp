@@ -163,14 +163,14 @@ export function createBridge({ config, client, acp }) {
             return finish(session, await client.getAgent(agentId));
           }
         }
+        const latest = await client.getAgent(agentId);
+        if (TERMINAL_STATUSES.has(latest.status) && !awaitingRun) return finish(session, latest);
       } catch (error) {
         if (signal.aborted || error instanceof Cancelled) throw new Cancelled();
         if (/** @type {any} */ (error).status >= 400 && /** @type {any} */ (error).status < 500) throw error;
         if (++failures > MAX_STREAM_FAILURES) throw error;
       }
       if (signal.aborted) throw new Cancelled();
-      const latest = await client.getAgent(agentId);
-      if (TERMINAL_STATUSES.has(latest.status) && !awaitingRun) return finish(session, latest);
       await sleep(RECONNECT_MS, signal);
     }
   }
