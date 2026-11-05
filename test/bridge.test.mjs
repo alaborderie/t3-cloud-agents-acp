@@ -323,3 +323,33 @@ test("an unreachable T3 MCP endpoint does not fail the run", async (t) => {
   assert.match(messageText(bridge.updates), /PR: .*pull\/3$/);
   assert.match(bridge.stderr(), /could not link/);
 });
+
+test("a top-level prompt answers a dismissed question and continues after ACP reload on the same agent", async (t) => {
+  const first = startBridge({ onElicit: () => ({ action: "cancel" }) });
+  t.after(first.stop);
+  const sessionId = await first.open();
+  const topLevel = (/** @type {string} */ text) => [
+    { type: "text", text: "<t3_code_instructions>Local tools</t3_code_instructions>" },
+    { type: "text", text },
+    { type: "text", text: "<runtime_info>Jarvis</runtime_info>\n<pull_request_linking>Link PRs</pull_request_linking>" },
+  ];
+  await first.request("session/prompt", { sessionId, prompt: topLevel("Ask which proof label to use") });
+  const agentId = agentIdOf(first.updates);
+  const create = fake.requests.find((r) => r.method === "POST" && r.path === "/api/cloud-agents/agents" && r.body.prompt === "Ask which proof label to use");
+  assert.ok(create);
+  assert.equal(create.body.repo, SANDBOX);
+  assert.equal(create.body.title, "Ask which proof label to use");
+  assert.equal(first.elicitations.length, 1);
+  await first.request("session/prompt", { sessionId, prompt: topLevel("Top-level ACP proof") });
+
+  const second = startBridge();
+  t.after(second.stop);
+  await second.request("initialize", { protocolVersion: 1 });
+  await second.request("session/load", { sessionId, cwd: project });
+  await second.request("session/prompt", { sessionId, prompt: topLevel("Add the follow-up proof") });
+  assert.deepEqual(requestsFor(agentId).map((r) => [r.path, r.body]), [
+    [`/api/cloud-agents/agents/${agentId}/reply`, { questionId: "ask-1", answer: "Top-level ACP proof" }],
+    [`/api/cloud-agents/agents/${agentId}/messages`, { text: "Add the follow-up proof" }],
+  ]);
+  assert.match(messageText(second.updates), new RegExp(`Cloud agent ${agentId} succeeded`));
+});

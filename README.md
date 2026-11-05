@@ -1,6 +1,6 @@
 # t3-cloud-agents-acp
 
-`cloud-agent-acp` runs a Backstage cloud agent as a T3 Code sub-thread. It is an ACP agent that T3 starts as a **Local ACP command** provider. When a thread calls `delegate_task` with that provider, the bridge creates a cloud agent through the Backstage cloud-agents API. It then streams the agent's text and tool calls into the child thread. A question from the cloud agent becomes a T3 question that wakes the parent thread. Stop in T3 stops the cloud agent. The child's last message gives the branch and the PR URL, and the bridge links that PR to the child thread, so T3 lists it with the thread's pull requests.
+`cloud-agent-acp` runs a Backstage cloud agent as a normal T3 Code thread or a delegated sub-thread. It is an ACP agent that T3 starts as a **Local ACP command** provider. When a thread calls `delegate_task` with that provider, the bridge creates a cloud agent through the Backstage cloud-agents API. It then streams the agent's text and tool calls into the child thread. A question from the cloud agent becomes a T3 question that wakes the parent thread. Stop in T3 stops the cloud agent. The child's last message gives the branch and the PR URL, and the bridge links that PR to the child thread, so T3 lists it with the thread's pull requests.
 
 It needs Node 22 or later and has no runtime dependencies. It changes no T3 code. [docs/t3-0.1.7-findings.md](docs/t3-0.1.7-findings.md) records what it relies on in the official T3 0.1.7 release, with file references. [docs/reference.md](docs/reference.md) lists the configuration and the event mapping.
 
@@ -56,6 +56,22 @@ It needs Node 22 or later and has no runtime dependencies. It changes no T3 code
 	```
 
 	The provider offers three models: `flash`, `sol`, and `opus`. They map to the Backstage tiers of the same names.
+
+## Use Cloud agent in a top-level thread
+
+1. Open a T3 project whose folder has a GitHub `origin` remote.
+2. Create a normal new thread and select **Cloud agent** with the `sol` model.
+3. Type your request and send it. No `delegate_task` call or `<user_request>` wrapper is needed.
+4. Answer blocking questions in the thread's T3 question form. Each answer starts a new Kubernetes Job on the same cloud branch.
+5. After the agent finishes, send a follow-up in the same thread. It starts another run on that branch and can update the same PR.
+
+The project folder can be the main checkout or a T3 worktree. The bridge resolves the repository from that folder's `origin`, not its directory name. Leading `repo:`, `base:`, and `branch:` lines override the target for the first message.
+
+T3 keeps the thread and its ACP session id. The bridge persists the Backstage agent id and event cursor on Jarvis, so reloading the ACP session follows the same agent without replaying tool items. The cloud Job exits between runs. Neither T3 Code nor T3 Connect runs in the cluster.
+
+While a T3 turn is active, use T3's queued-message control for a follow-up. Backstage rejects `/messages` during an active cloud run. If an ACP prompt reaches the bridge while that agent is still running, the bridge reports that the message was not sent and keeps following the run. Resend it after the run ends.
+
+The final message gives the agent id, branch, and PR URL. The bridge also links the PR to the thread. **Stop** stops the cloud agent.
 
 ## Launch a cloud agent from t3-hub
 
