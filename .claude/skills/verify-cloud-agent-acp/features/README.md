@@ -10,7 +10,7 @@ This directory lists the user-facing behaviors of the bridge in T3 Code. Read th
 
 ## Driving conventions
 
-- Act as the parent thread through `test/t3/scripted-parent.mjs`. Send it one JSON tool call per message with `t3 thread send --wait`.
+- Act as the parent thread through `test/t3/scripted-parent.mjs`. Send it one JSON tool call per message with `t3 thread send --wait`. A top-level thread has no parent, so answer its question and interrupt it from a `scriptedParent` driver thread, as [top-level.md](top-level.md) shows.
 - Read a child's state from `t3 thread show --json`, from `~/t3-acp-proof/bridge/fake-requests.jsonl`, and from the throwaway database in read-only mode.
 - A brief that contains `scenario: success` skips the question. Any other brief asks `ask-1` first.
 - A brief that contains `scenario: runner-pr` drops `gh pr create` from the streams, so only the bridge can link the PR.
@@ -26,3 +26,4 @@ This directory lists the user-facing behaviors of the bridge in T3 Code. Read th
 - [question.md](question.md): the cloud agent's question wakes the parent, and the answer reaches Backstage.
 - [stop.md](stop.md): Stop ends the child and stops the cloud agent.
 - [restart.md](restart.md): a T3 restart resumes the child without repeating items.
+- [top-level.md](top-level.md): a normal thread on the Cloud agent provider creates, asks, follows up, links the PR, and stops with no parent thread.
