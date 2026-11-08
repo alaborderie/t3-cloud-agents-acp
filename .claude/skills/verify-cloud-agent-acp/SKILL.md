@@ -1,11 +1,11 @@
 ---
 name: verify-cloud-agent-acp
-description: Prove cloud-agent-acp, the ACP bridge that shows Backstage cloud agents as T3 Code sub-threads, on the official T3 0.1.7 release against the repo's fake Backstage server. Use after changing src/, test/fake-backstage.mjs, or scripts/t3-proof.mjs, or when asked to show that delegation, questions, Stop, or restart work in real T3.
+description: Prove cloud-agent-acp, the ACP bridge that shows Backstage cloud agents as T3 Code sub-threads, on the official T3 0.1.7 release against the repo's fake Backstage server. Use after changing src/, test/fake-backstage.mjs, or scripts/t3-proof.mjs, or when asked to show that delegation, top-level cloud agent threads, questions, Stop, or restart work in real T3.
 ---
 
 # Verify cloud-agent-acp
 
-The user surface is T3 Code. A parent thread calls `delegate_task` with `target.providerInstanceId: "cloudAgent"`, and the bridge shows the cloud agent as a child thread. `scripts/t3-proof.mjs` drives that whole path in a throwaway T3 home, so wrap it. Do not rebuild its steps by hand.
+The user surface is T3 Code. A parent thread calls `delegate_task` with `target.providerInstanceId: "cloudAgent"`, and the bridge shows the cloud agent as a child thread. A user can also pick **Cloud agent** in a normal thread, which has no parent. `scripts/t3-proof.mjs` drives the delegated path in a throwaway T3 home, so wrap it. Do not rebuild its steps by hand. It does not drive top-level threads or restart: [features/top-level.md](features/top-level.md) and [features/restart.md](features/restart.md) give those by hand.
 
 Never touch `~/.t3`, the live T3 service, or port 3773. The proof refuses `--home ~/.t3`.
 
@@ -40,7 +40,7 @@ If a port is held by a process this run did not start, stop. Do not drive or kil
 
 ## Drive
 
-Run `node scripts/t3-proof.mjs`. It runs every check in [features/](features/README.md) except restart, and it exits with the number of failed checks.
+Run `node scripts/t3-proof.mjs`. It runs every check in [features/](features/README.md) except restart and the top-level thread, and it exits with the number of failed checks.
 
 To drive one step by hand on a kept instance, send JSON tool calls to the parent thread that the script printed:
 

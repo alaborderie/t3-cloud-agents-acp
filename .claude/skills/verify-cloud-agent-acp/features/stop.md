@@ -16,7 +16,8 @@ Stop in T3 ends the child's turn as cancelled and stops the cloud agent in Backs
 
 - **Stop a run.** Run `node scripts/t3-proof.mjs`. The check `Stop (task_cancel) reached POST /agents/<id>/stop` passes.
 - **Agent state.** On a kept instance, run `curl -s -H 'authorization: Bearer cat_fake' http://127.0.0.1:7480/api/cloud-agents/agents/<id>`. It shows `"status":"stopped"`.
-- **Stop at a question.** `npm test` covers this case in `Stop while the question is open also stops the agent`.
+- **Stop at a question.** On a kept instance, delegate or start a run with a brief that asks (no `scenario: success`), then cancel while the question is open. `fake-requests.jsonl` gets `POST /agents/<id>/stop`. [top-level.md](top-level.md) step 6 shows the exact commands. `npm test` also covers this case in `Stop while the question is open also stops the agent`.
+- **Stop a top-level thread.** [top-level.md](top-level.md) step 5 sends `t3_thread_interrupt`. The thread ends `interrupted` and the stop request follows.
 
 ## Gotchas
 
