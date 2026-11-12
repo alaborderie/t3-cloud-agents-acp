@@ -94,7 +94,7 @@ The hub agent calls `delegate_task` itself, so the child nests under the hub thr
 
 ## Prove it on a throwaway T3
 
-`scripts/t3-proof.mjs` checks the bridge on the official T3 release, against the fake Backstage server in this repository. It never touches `~/.t3`. It needs Node 22.13 or later for `node:sqlite`. It does five things:
+`scripts/t3-proof.mjs` checks the bridge on the official T3 release, against the fake Backstage server in this repository. It never touches `~/.t3`. It needs Node 22.23.5 or later (`node:sqlite` needs 22.13). It does five things:
 
 1. It installs T3 0.1.7 into `~/t3-acp-proof` with `https://t3.codes/install.sh`, setting `T3CODE_VERSION`, `T3CODE_HOME`, and `T3CODE_INSTALL_BIN_DIR`.
 2. It registers the bridge as `cloudAgent`, and a scripted parent agent as `scriptedParent`. The scripted parent needs no paid model. It turns each JSON message into one T3 MCP tool call.
