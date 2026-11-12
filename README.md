@@ -2,7 +2,7 @@
 
 `cloud-agent-acp` runs a Backstage cloud agent as a normal T3 Code thread or a delegated sub-thread. It is an ACP agent that T3 starts as a **Local ACP command** provider. When a thread calls `delegate_task` with that provider, the bridge creates a cloud agent through the Backstage cloud-agents API. It then streams the agent's text and tool calls into the child thread. A question from the cloud agent becomes a T3 question that wakes the parent thread. Stop in T3 stops the cloud agent. The child's last message gives the branch and the PR URL, and the bridge links that PR to the child thread, so T3 lists it with the thread's pull requests.
 
-It needs Node 22 or later and has no runtime dependencies. It changes no T3 code. [docs/t3-0.1.7-findings.md](docs/t3-0.1.7-findings.md) records what it relies on in the official T3 0.1.7 release, with file references. [docs/reference.md](docs/reference.md) lists the configuration and the event mapping.
+It needs Node 22.23.5 or later and has no runtime dependencies. It changes no T3 code. [docs/t3-0.1.7-findings.md](docs/t3-0.1.7-findings.md) records what it relies on in the official T3 0.1.7 release, with file references. [docs/reference.md](docs/reference.md) lists the configuration and the event mapping.
 
 ## Install on Jarvis
 
@@ -94,7 +94,7 @@ The hub agent calls `delegate_task` itself, so the child nests under the hub thr
 
 ## Prove it on a throwaway T3
 
-`scripts/t3-proof.mjs` checks the bridge on the official T3 release, against the fake Backstage server in this repository. It never touches `~/.t3`. It needs Node 22.13 or later for `node:sqlite`. It does five things:
+`scripts/t3-proof.mjs` checks the bridge on the official T3 release, against the fake Backstage server in this repository. It never touches `~/.t3`. It needs Node 22.23.5 or later (`node:sqlite` needs 22.13). It does five things:
 
 1. It installs T3 0.1.7 into `~/t3-acp-proof` with `https://t3.codes/install.sh`, setting `T3CODE_VERSION`, `T3CODE_HOME`, and `T3CODE_INSTALL_BIN_DIR`.
 2. It registers the bridge as `cloudAgent`, and a scripted parent agent as `scriptedParent`. The scripted parent needs no paid model. It turns each JSON message into one T3 MCP tool call.
