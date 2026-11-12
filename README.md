@@ -2,7 +2,7 @@
 
 `cloud-agent-acp` runs a Backstage cloud agent as a normal T3 Code thread or a delegated sub-thread. It is an ACP agent that T3 starts as a **Local ACP command** provider. When a thread calls `delegate_task` with that provider, the bridge creates a cloud agent through the Backstage cloud-agents API. It then streams the agent's text and tool calls into the child thread. A question from the cloud agent becomes a T3 question that wakes the parent thread. Stop in T3 stops the cloud agent. The child's last message gives the branch and the PR URL, and the bridge links that PR to the child thread, so T3 lists it with the thread's pull requests.
 
-It needs Node 22 or later and has no runtime dependencies. It changes no T3 code. [docs/t3-0.1.7-findings.md](docs/t3-0.1.7-findings.md) records what it relies on in the official T3 0.1.7 release, with file references. [docs/reference.md](docs/reference.md) lists the configuration and the event mapping.
+It needs Node 22.23.5 or later and has no runtime dependencies. It changes no T3 code. [docs/t3-0.1.7-findings.md](docs/t3-0.1.7-findings.md) records what it relies on in the official T3 0.1.7 release, with file references. [docs/reference.md](docs/reference.md) lists the configuration and the event mapping.
 
 ## Install on Jarvis
 
